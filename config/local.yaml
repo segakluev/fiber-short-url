@@ -1,0 +1,8 @@
+env: "local" # текущее окружение бывают еще: local, dev, prod
+storage_path: "./storage/storage.db"
+http_server:
+  address: "localhost:8082" # т.к. 8080 мб уже занят
+  timeout: 4s # макс время на чтение запроса
+  idle_timeout: 60s # макс время без активности
+  user: "myuser"
+  password: "mypasss"
