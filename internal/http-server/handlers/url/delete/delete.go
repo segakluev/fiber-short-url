@@ -2,12 +2,12 @@ package delete
 
 import (
 	"errors"
+	"log/slog"
 
 	resp "go-short-url/internal/lib/api/response"
 	"go-short-url/internal/lib/logger/sl"
 	"go-short-url/internal/storage"
-
-	"log/slog"
+	"go-short-url/internal/storage/cache"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -16,33 +16,38 @@ type URLDeleter interface {
 	DeleteURL(alias string) error
 }
 
-func New(log *slog.Logger, urlDeleter URLDeleter) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+func New(log *slog.Logger, deleter URLDeleter, c *cache.MemoryCache) fiber.Handler {
+	return func(ctx *fiber.Ctx) error {
 		const op = "handlers.url.delete.New"
 
-		log := log.With(
+		reqID, _ := ctx.Locals("requestid").(string)
+		logger := log.With(
 			slog.String("op", op),
-			slog.String("request_id", c.Locals("requestid").(string)),
+			slog.String("request_id", reqID),
 		)
 
-		alias := c.Params("alias")
+		alias := ctx.Params("alias")
 		if alias == "" {
-			log.Warn("alias is empty")
-			return c.Status(fiber.StatusBadRequest).JSON(resp.Error("alias is required"))
+			logger.Info("empty alias")
+			return ctx.Status(fiber.StatusBadRequest).JSON(resp.Error("invalid alias"))
 		}
 
-		err := urlDeleter.DeleteURL(alias)
+		err := deleter.DeleteURL(alias)
 		if errors.Is(err, storage.ErrURLNotFound) {
-			log.Warn("alias not found", slog.String("alias", alias))
-			return c.Status(fiber.StatusNotFound).JSON(resp.Error("alias not found"))
+			logger.Info("alias not found", slog.String("alias", alias))
+			return ctx.Status(fiber.StatusNotFound).JSON(resp.Error("alias not found"))
 		}
 		if err != nil {
-			log.Error("failed to delete", sl.Err(err))
-			return c.Status(fiber.StatusInternalServerError).JSON(resp.Error("failed to delete"))
+			logger.Error("failed to delete alias", sl.Err(err))
+			return ctx.Status(fiber.StatusInternalServerError).JSON(resp.Error("internal error"))
 		}
 
-		log.Info("alias deleted", slog.String("alias", alias))
+		// remove from cache too
+		if c != nil {
+			c.Delete(alias)
+		}
 
-		return c.JSON(resp.OK())
+		logger.Info("alias deleted", slog.String("alias", alias))
+		return ctx.JSON(resp.OK())
 	}
 }
